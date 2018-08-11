@@ -100,6 +100,12 @@ def query(table,fields,condition=None):
         sql = sql + ' where ' + condition
     return fetch(sql)
 
+def value(table,field,condition=None):
+    models = query(table,[field],condition=condition)
+    if models!= None and len(models)>0:
+        return models[0][0]
+    return None
+
 def fetch(sql):
     if sql != None:
         r = execute(sql,fetch=True)
@@ -124,7 +130,7 @@ def init_tables():
     #name－真实姓名　nick－微信昵称　display - 群内昵称
     table_runner =  '''CREATE TABLE `runner` (
                         `id` integer PRIMARY KEY AUTOINCREMENT,
-                        `name` varchar(100) DEFAULT NULL,
+                        `name` varchar(100) NOT NULL,
                         `nick` varchar(1000) NOT NULL,
                         `display` varchar(100) NOT NULL,                     
                         `remark` varchar(1000) DEFAULT NULL
@@ -146,9 +152,9 @@ def init_tables():
                         `rid` integer NOT NULL,                        
                         `month` int(11) NOT NULL,
                         `year` int(11) NOT NULL,                        
-                        `pland` decimal(10,5) DEFAULT 60,
-                        `duration` decimal(10,5) DEFAULT NULL,
-                        `reald` decimal(10,5) DEFAULT NULL,
+                        `plan` decimal(10,5) DEFAULT 60,
+                        `duration` decimal(10,5) DEFAULT 0,
+                        `total` decimal(10,5) DEFAULT 0,
                         `heartrate` int(11)  DEFAULT NULL,
                         `remark` varchar(1000) DEFAULT NULL
                     )'''             

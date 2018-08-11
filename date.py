@@ -11,3 +11,6 @@ def date():
 
 def now():
     return time.strftime('%X',time.localtime())
+
+def toTime(str):
+    return time.strptime(str,'%X')
