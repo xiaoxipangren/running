@@ -1,4 +1,4 @@
-import auth
+import chat
 import os 
 import itchat
 
@@ -38,7 +38,7 @@ class Handler(StreamRequestHandler):
                 logger.debug('download qrcode to '+qr_file)
                 self.request.sendall(bytes(qr_file,'utf-8'))
 
-        auth.login(hotReload=False,qrCallback=qrCallback)
+        chat.login(hotReload=False,qrCallback=qrCallback)
 
 
 @itchat.msg_register(itchat.content.TEXT)

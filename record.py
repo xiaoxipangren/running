@@ -3,19 +3,19 @@ import re
 import store
 import date
 import random
+import sys
 
 from log import Logger
 
 test_room='test'
 runing_club='珞珈跑团'
 mark = '#run'
-
 help = '#help'
 
 mottos=[
     '奔跑吧，大胸弟',
     'just do running',
-    '当你跑步时，你在想村上春是哪种树'
+    '当你跑步时，你在想村上春是哪种树',
     '我是奔跑的五花肉，我为自己带盐',
     '跑步是为了更愉快的喝酒',
     '我跑故我在',
@@ -27,23 +27,17 @@ room = test_room # runing_club
 
 logger = Logger(__name__).log()
 
-def login(hotReload=True,qrCallback=None,loginCallback=None):
-    itchat.auto_login(hotReload = hotReload,qrCallback=qrCallback,loginCallback=loginCallback)
-    itchat.run(debug=True,blockThread=True)
+error = None
 
-def logout():
-    itchat.logout()
+def filter_chatroom(msg):
+    from_user = msg['User']['NickName']
+    if(from_user!=room):
+        return False
+    return True
 
-@itchat.msg_register(itchat.content.TEXT,isGroupChat=True)
-def text_reply(msg):
-    response = reply(filter_contact,msg)
-    if not none_or_empty(response):
-        return msg.user.send(response)
-        #print(response)
-
-def reply(filter_fn,msg):
+def reply(msg,filter=filter_chatroom):
     logger.debug('receive message: %s' % msg)
-    result = filter_fn(msg)
+    result = filter(msg)
     if not result:
         return None
 
@@ -66,7 +60,10 @@ def reply(filter_fn,msg):
                 display = msg['ActualNickName']
                 record(display,name,cols)
                 #考虑增加使用名字作为识别标志进行他人辅助打卡功能
-
+            
+            global error
+            if not none_or_empty(error):
+                return error
             return realtime_reply()
         elif(text.startswith(help)):
             return help_reply()
@@ -81,6 +78,7 @@ def help_reply():
     初始化后每天打卡只需：#run日跑，如#run5
     支持每天打卡一次，再次打卡视为修改
 
+    #run0 撤销当天打卡记录
     #run5 当天打卡5公里，累计自动累加5
     #run5/10 当天打卡5公里，设定累计10公里
     #run5/10/60 当天打卡5公里，设定累计10公里，设定本月计划60公里
@@ -90,6 +88,7 @@ def help_reply():
     '''
 
 def record(display,name,data):
+    logger.debug('receive name - {}, data - {}'.format(name,data))
     if not none_or_empty(name):
         update_name(display,name)
 
@@ -112,11 +111,17 @@ def rank_reply(order):
 
     for i in range(len(marks)):
         mark = marks[i]
-        reply = reply + '{}. {} {}/{}/{}\n'.format(i+1,mark['name'],mark['distance'],mark['total'],mark['plan'])
+        reply = reply + '{}. {} {}/{}/{}\n'.format(i+1,mark['name'],format_number(mark['distance']),format_number(mark['total']),format_number(mark['plan']))
     
     return reply
 
-
+def format_number(number):
+    if none_or_empty(number):
+        return ''
+    if '.' in str(number):
+        return '%.1f' % number
+    return str(number)
+    
 def header():
     day = date.date()
     month = date.month()
@@ -164,10 +169,11 @@ def rank(order='time'):
     return marks
 
 def extra(text):
-    reg = r'[\d./]*'
+    reg = r'[\d+\.?\d+/?]*'
     records = re.findall(reg,text)
+    logger.debug('match data: %s' % records)
     for record in records:
-        if re.match(r'\d\.|/',record)!=None or none_or_empty(record):
+        if none_or_empty(record):
             continue
         else:
             name = text[0:text.index(record)].strip()
@@ -180,15 +186,10 @@ def extra(text):
     return None
 
 
-
-def filter_contact(msg):
-    from_user = msg['User']['NickName']
-    if(from_user!=room):
-        return False
-    return True
-
 #刷新跑团成员列表
-def update_members():
+def update_members(chatroom):
+    global room
+    room = chatroom
     chatroom  = itchat.search_chatrooms(name=room)
     room_id = chatroom[0]['UserName']
     memberList = itchat.update_chatroom(room_id, detailedMember=True)['MemberList']
@@ -214,19 +215,22 @@ def update_name(display,name):
     update('runner','name',name,condition)
 
 def update_distance(display,cols):
+    if not validate(cols):
+        return
+
     condition = cond({'display':display})
     rid = store.value('runner','id',condition=condition)
 
 
-    distance = float(cols[0])
-
+    distance = cols[0]
+    record = None
     #撤回功能
     if(distance == 0):
         delete_record(rid)
     else:
         record = update_record(rid,distance)
 
-    total = None if len(cols) < 2 else float(cols[1])
+    total = None if len(cols) < 2 else cols[1]
     if total:
         update_total(rid,total)
     else:
@@ -236,15 +240,49 @@ def update_distance(display,cols):
             distance = new - old
         update_total(rid,distance,add=True)
     
-    plan = None if len(cols) < 3 else float(cols[2])
+    plan = None if len(cols) < 3 else cols[2]
     if plan:
         update_plan(rid,plan)
+
+def validate(cols):
+    
+    global error
+    for i in range(len(cols)):
+        col = isNumber(cols[i])
+        if not none_or_empty(col):
+            cols[i] = col
+        else:
+            error = '打卡格式不正确'
+            return False
+    logger.debug('convert to float: %s' % cols)
+    if len(cols)>1:
+        if cols[1] < cols[0]:
+            error = '累计跑距不得小于今日跑距'
+            return False
+    
+
+    return True
+
+
+
+def isNumber(str):
+    try:
+        n = float(str)
+        return n
+    except ValueError:
+        return None
+
 
 def delete_record(rid):
     table = 'record'
     day = date.date()
     condition = cond({'rid':rid,'date':day})
-    store.delete(table,condition=condition)
+
+    old = store.value(table,'distance',condition=condition)
+    if not none_or_empty(old):
+        update_total(rid,old*(-1),add=True)
+        store.delete(table,condition=condition)
+    
 
 #刷新或者新建当日跑步记录
 def update_record(rid,distance):
@@ -307,29 +345,7 @@ def cond(dict):
         condition = condition + ' and ' + ("%s='%s'" % (key,dict[key]))
     return condition
 def none_or_empty(str):
-    return str==None or str=='' or len(str) == 0
-
-if __name__=='__main__':
-    store.init()
-    itchat.auto_login()
-    
-    update_members()
-
-
-    itchat.run(debug=True,blockThread=True)
-
-    
-
-    # text='#run分结束啦20.3/49.3/150.3'
-    # keys = extra(text)
-
-
-    # text='#run得劲20.3/49.3/150.3'
-    # keys = extra(text)
-
-
-    # text='#的分结束啦20.3/ / /'
-    # keys = extra(text)
+    return str==None or str==''
 
 
 

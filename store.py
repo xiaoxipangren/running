@@ -37,13 +37,13 @@ def execute(sql,data=None,message=None,fetch=False):
             r = cur.fetchall()
         else:
             conn.commit()
-        logger.debug('execute sql successfully: [%s]' % sql)
+        #logger.debug('execute sql successfully: [%s]' % sql)
     else:
         for d in data:
             logger.debug('executing sql: [{}]-[{}]'.format(sql,d))
             cur.execute(sql,d)
             conn.commit()
-            logger.debug('execute sql successfully: [{}]-[{}]'.format(sql,d))
+            #logger.debug('execute sql successfully: [{}]-[{}]'.format(sql,d))
     if message:
         logger.debug(message)
     close_all(conn,cur)        
