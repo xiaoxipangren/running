@@ -117,16 +117,21 @@ def delete(table,condition):
     execute(sql,message='delete successfully')
 
 
+def count(table,condition=None):
+    return value(table,'count(*)',condition=condition) 
+
 def exists(table,condition):
-    sql = 'select count(*) as count from {} where {}'.format(table,condition)
-    r = fetch(sql)
-    
-    if r!=None and len(r) == 1 and r[0][0]>0:
-        return True
-    return False
+    num = count(table,condition=condition)
+    if num :
+        return num > 0
+    return False 
 
 
-def init_tables():
+def exists_table(table):
+    return exists('sqlite_master',"type=='table' and name='%s'" % table)
+
+
+def init_tables(drop):
     #name－真实姓名　nick－微信昵称　display - 群内昵称
     table_runner =  '''CREATE TABLE `runner` (
                         `id` integer PRIMARY KEY AUTOINCREMENT,
@@ -165,18 +170,44 @@ def init_tables():
                         `content` varchar(100) DEFAULT NULL,
                         `remark` varchar(1000) DEFAULT NULL
                     )'''
+    table_event = '''CREATE TABLE `event` (
+                        `id` integer PRIMARY KEY AUTOINCREMENT,
+                        `start` datetime DEFAULT NULL,
+                        `end` datetime DEFAULT NULL,
+                        `address` varchar(100) DEFAULT NULL,
+                        `location` varchar(100) DEFAULT NULL,
+                        `name` varchar(100) NOT NULL,
+                        `slogan` varchar(100) DEFAULT NULL,
+                        `detail` varchar(100) DEFAULT NULL,
+                        `remark` varchar(1000) DEFAULT NULL
+                    )'''
+    
+    table_event_runner='''CREATE TABLE `event_runner` (
+                        `id` integer PRIMARY KEY AUTOINCREMENT,
+                        `eid` integer NOT NULL,
+                        `rid` integer NOT NULL,
+                        `date` datetime DEFAULT NULL,
+                        `remark` varchar(1000) DEFAULT NULL                        
+                    )'''
 
-    tables = {'runner':table_runner,'record':table_record,'plan':table_plan,'motto':table_motto}
+    tables = {
+        'runner':table_runner,
+        'record':table_record,
+        'plan':table_plan,
+        'motto':table_motto,
+        'event':table_event,
+        'event_runner':table_event_runner
+    }
     
     for table in tables:
-        drop_table(table)
-        create_table(tables[table],table)
+        if drop:
+            drop_table(table)
+        if not exists_table(table):
+            create_table(tables[table],table)
 
 
-def init():
-    inited = os.path.exists(db_file)
-    if not inited:
-        init_tables()
+def init(drop=False):
+    init_tables(drop)
 
 
 def test():

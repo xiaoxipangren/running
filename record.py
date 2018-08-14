@@ -9,8 +9,17 @@ from log import Logger
 
 test_room='test'
 runing_club='珞珈跑团'
-mark = '#run'
-help = '#help'
+
+#'qi':'#qi',
+keys={
+    'run':'#run',
+    'help':'#help',
+    'motto':'#motto',
+    'rose':'#rose',
+    'qi':'#qi'
+}
+
+today_motto=''
 
 mottos=[
     '奔跑吧，大胸弟',
@@ -40,63 +49,163 @@ def reply(msg,filter=filter_chatroom):
     result = filter(msg)
     if not result:
         return None
-
     else:
         text = msg['Text'].strip()
-        logger.debug('receive text: %s' % text)
+        display = msg['ActualNickName']
+        logger.debug('%s said: %s' % (display,text))
+        return dispatch(display,text)
 
-        if(text.startswith(mark)):
-            text = text.replace(mark,'').strip()
-            # if '章波' in text:
-            #     return '章波是个大沙皮'
-            # if '东清' in text:
-            #     return '东哥是个大逗比'
-            data = extra(text)
-            
-            if data:
-                name = data[0]
-                cols = data[1]
+def dispatch(display,text):
+    if do_not_disturb():
+        return None
+    for key in keys:
+        prefix = keys[key]
+        if text.startswith(prefix):
+            reply_fn = getattr(__import__(__name__),'%s_reply' % key,None)
+            if not none_or_empty(reply_fn):
+                text = text.replace(prefix,'').strip()
+                logger.debug('call reply fn %s' % reply_fn)
+                response =  reply_fn(display,text)
+                if not none_or_empty(error):
+                    global error
+                    response = error
+                    error = ''
+                return response
+    return None
 
-                display = msg['ActualNickName']
-                record(display,name,cols)
-                #考虑增加使用名字作为识别标志进行他人辅助打卡功能
-            
-            global error
-            if not none_or_empty(error):
-                return error
-            return realtime_reply()
-        elif(text.startswith(help)):
-            return help_reply()
-def help_reply():
-    return  '''
-    打卡新选择 跑步很简单
 
-    格式：#run[姓名]日跑[/累计][/计划]
-    如： #run郑海青5/10/60
-    姓名只需初始化一次，再次出现视为修改
-    累计、计划每月只需初始化一次，再次出现视为修改
-    初始化后每天打卡只需：#run日跑，如#run5
-    支持每天打卡一次，再次打卡视为修改
+#免打扰
+def do_not_disturb():
+    morning_begin = date.toTime('05:00:00')
+    morning_end = date.toTime('10:00:00') if date.is_weekend() else date.toTime('08:00:00')
 
-    #run0 撤销当天打卡记录
-    #run5 当天打卡5公里，累计自动累加5
-    #run5/10 当天打卡5公里，设定累计10公里
-    #run5/10/60 当天打卡5公里，设定累计10公里，设定本月计划60公里
-    #help 查看本帮助
+    evening_begin = date.toTime('19:00:00')
+    evening_end = date.toTime('22:00:00')
+
+    now = date.toTime(date.now())
+
+    return not ((now>morning_begin and now<morning_end) or (now>evening_begin and now<evening_end))
     
-    通过群昵称追踪身份，请谨慎修改群昵称
+
+
+
+def test_reply(display,text):
+    logger.debug('test reply %s' % text)
+
+
+def run_reply(display,text):
+    data = extra_run(text)   
+    if data:
+        name = data[0]
+        cols = data[1]
+        run(display,name,cols)
+        #考虑增加使用名字作为识别标志进行他人辅助打卡功能
+    global error
+    if not none_or_empty(error):
+        return error
+    return realtime_reply()
+
+def motto_reply(display,text):
+    if none_or_empty(text):
+        return None
+
+    if len(text.split('\n'))>4:
+        global error
+        error = '箴言最多4行'
+        return None
+
+    id,name,nick = runner(display)
+    store.insert('motto',['rid','content','date'],[[id,text,date.date()]])
+    return '已添加，将随机展示'
+
+
+def qi_reply(display,text):
+    id,name,nick = runner(display)
+    if not is_qi_captain(name,nick,display):
+        global error
+        error='指令#qi为齐队专属指令'
+        return None
+
+    motto_reply(display,text)
+    global today_motto
+    today_motto = text
+
+    return realtime_reply()
+
+
+def is_qi_captain(name,nick,display):
+    return name=='齐队' or nick == 'AVIC 齐连惠' or display == '齐连惠航天科技88遥感'
+
+
+def rose_reply(display,text):
+    if not none_or_empty(text):
+        update_name(display,text)
+    
+    rose = event('七夕西湖玫瑰跑')
+
+    eid = rose[0]
+    table = 'event_runner'
+    rid,name,nick = runner(display)
+    condition = cond({'eid':eid,'rid':rid})
+    if store.exists(table,condition=condition):
+        store.delete(table,condition)
+    else:
+        store.insert(table,['eid','rid','date'],[[eid,rid,date.datetime()]])
+    
+    return event_rank(rose) 
+    
+
+def event_rank(event):
+    table = 'event_runner inner join runner on event_runner.rid=runner.id'
+    eid = event[0]
+    runners = store.query(table,['runner.name,event_runner.date'],condition=cond({'event_runner.eid':eid}))
+
+    runners.sort(key=lambda runner: date.toDatetime(runner[1]))
+
+    reply = '七夕环西湖玫瑰跑\n\n不给情人买玫瑰，High去西湖跑玫瑰\n\n集合地点：{}\n集合时间：{}\n'.format('少年宫旗杆下','08-18(周六)07:00')
+    for i in range(len(runners)):
+        reply = reply + '{}. {}'.format(i+1,runners[i][0])
+    
+    return reply
+
+
+def event(name):
+    events = store.query('event',['*'],condition=cond({'name':name}))
+    if not none_or_empty(events) and len(events) > 0:
+        return events[0]
+    return None
+
+def help_reply(display,text):
+    # #qi 齐队牌鸡汤
+    # 姓名只需初始化一次，再次出现视为修改
+    # 累计、计划每月只需初始化一次，再次出现视为修改
+    # 初始化后每天打卡只需：#run日跑，如#run5
+    # 支持每天打卡一次，再次打卡视为修改
+    # #run5 当天打卡5公里，累计自动累加5
+    # #run5/10 当天打卡5公里，设定累计10公里
+    # #run5/10/60 当天打卡5公里，设定累计10公里，设定本月计划60公里
+    return  '''
+    格式：#run[姓名]日跑[/累计][/计划]
+    如： #run张三5/10/60
+    #run0 撤销当天打卡记录
+    #run0.01 不跑步也可打卡
+    #rose 报名七夕玫瑰跑，再次输入撤销报名
+    #motto箴言 增加跑步箴言，将随机展示
+    #help 查看本帮助
     '''
 
-def record(display,name,data):
+def run(display,name,data):
     logger.debug('receive name - {}, data - {}'.format(name,data))
     if not none_or_empty(name):
         update_name(display,name)
+
 
     if(len(data)>0):
         update_distance(display,data)
 
 def realtime_reply():
-    text = rank_reply('time')
+    #按照总跑距排序
+    text = rank_reply('total')
     logger.debug('realtime reply: %s' % text)
     return text
 
@@ -105,9 +214,9 @@ def concludsion_reply():
     logger.debug('conclusion reply: %s' % text)
     return text
 
-def rank_reply(order):
+def rank_reply(order,reverse=True):
     reply = header()
-    marks = rank(order=order)
+    marks = rank(order=order,reverse=reverse)
 
     for i in range(len(marks)):
         mark = marks[i]
@@ -127,14 +236,34 @@ def header():
     month = date.month()
 
     head = '{} {}\n\n'.format(day,room)
-    head = head + '{}\n\n'.format(mottos[random.randint(0,len(mottos)-1)])
+    head = head + '{}\n\n'.format(motto())
     head = head + '日跑量/{}月累计/{}月计划\n'.format(month,month)
 
     return head
 
+def motto():
+    if not none_or_empty(today_motto):
+        return '{} - \n{}'.format('齐队',today_motto)
+    
+    count = store.count('motto')
 
+    if count == None or count == 0:
+        return mottos[random.randint(0,len(mottos)-1)]
+    
+    max_id = store.value('motto','max(id)')
+    random_motto = store.query('motto',['content','rid'],cond({'id':random.randint(1,max_id)}))
 
-def rank(order='time'):
+    if random_motto == None:
+        return mottos[random.randint(0,len(mottos)-1)]
+    
+    random_motto=random_motto[0]
+    content = random_motto[0]
+    rid = random_motto[1]
+    name = store.value('runner','name',cond({'id':rid}))
+
+    return '{} - \n{}'.format(name,content)
+
+def rank(order='time',reverse=False):
     table_runner = 'runner'
     table_record = 'record'
     table_plan = 'plan'
@@ -165,10 +294,10 @@ def rank(order='time'):
         mark = {'name':name,'distance':distance,'total':total,'plan':plan,'time':date.toTime(time)}
         marks.append(mark)
     
-    marks.sort(key= lambda mark:mark[order])
+    marks.sort(reverse=reverse,key= lambda mark:mark[order])
     return marks
 
-def extra(text):
+def extra_run(text):
     reg = r'[\d+\.?\d+/?]*'
     records = re.findall(reg,text)
     logger.debug('match data: %s' % records)
@@ -181,7 +310,7 @@ def extra(text):
             for col in cols:
                 if col=='':
                     cols.remove(col)
-            logger.debug('extra data: %s' % [name,cols] )
+            logger.debug('extra run data: %s' % [name,cols] )
             return name,cols
     return None
 
@@ -263,7 +392,17 @@ def validate(cols):
 
     return True
 
+def runner(display):
+    table = 'runner'
 
+    condition = cond({'display':display})
+
+    runner = store.query(table,['id','name','nick'],condition)
+
+    if not none_or_empty(runner) and len(runner)>0:
+        runner = runner[0]
+        return (runner[0],runner[1],runner[2])
+    return None
 
 def isNumber(str):
     try:
